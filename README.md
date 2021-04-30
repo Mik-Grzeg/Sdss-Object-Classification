@@ -1,5 +1,9 @@
 # Sdss-Object-Classification
 
+<p align="center"> 
+<img src="https://user-images.githubusercontent.com/58633804/116714174-c305d680-a9d5-11eb-8263-83827977d101.jpg">
+</p>
+
 Start/Galaxy/Quasar classification
 
 A purpose of this project was to implement a neural network from scratch, that would classify a space object to be a star/galaxy/quasar based on photometric and spectroscopic features.
@@ -32,5 +36,3 @@ Each record has 18 features, some of them are redundant and few of them are tran
 ### Performance
 Data set is divided into train, validation and test sets with proportions 64/16/20.
 Roughly after 300 generations of pso, the classifier achieves accuracy of 96% on test set.
-
-![info](./pictures/ngc60.jpg)
