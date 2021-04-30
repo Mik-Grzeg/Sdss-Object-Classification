@@ -28,7 +28,7 @@ The data was acquired from SDSS skyserver (DR 12). Data Release 12 is the final 
 [Here](http://skyserver.sdss.org/dr12/en/tools/search/sql.aspx) you can execute your sql queries.
 
 ### Description 
-Data set used has around 20000 records, that are split into train, validation and test sets. 
+Data set used in this project has around 20000 observations, that are split into train, validation and test sets. 
 The biggest impact on classification have photometric and spectroscopic variables.
 Each record has 18 features, some of them are redundant and few of them are transformed. 
 
