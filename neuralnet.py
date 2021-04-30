@@ -325,7 +325,7 @@ class PCO:
             if verbose:
                 print(f'Generation {i+1}/{generations}\tbest cost = {self.gbest_cost[-1]:.5f}\ttrain acc=>{train_acc:.3f}\tval acc=>{val_acc:.3f}')
             elif (i+1) % print_generations_interval == 0 or i == 0:
-                print(f'Generation {i+1}/{generations}\tbest cost = {self.gbest_cost[-1]:.5f}')
+                print(f'Generation {i+1}/{generations}\tbest cost = {self.gbest_cost[-1]:.5f}\ttrain acc=>{train_acc:.3f}\tval acc=>{val_acc:.3f}')
 
 
         final_particle = Particle(self.gbest_pos)
