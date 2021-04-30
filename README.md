@@ -8,9 +8,7 @@ The neural network is optimized with particle swarm optimization algorithm.
 
 # Getting started
 ### Prerequisites
-This code is written in Python3.9
-
-Run command below in order install packages imported in jupyter notebook.
+Run command below in order install packages that are imported in jupyter notebook.
 ```bash
 pip install -r requirements.txt
 ```
