@@ -65,15 +65,19 @@ class NeuralNetwork:
         return [np.max(row) == row for row in y_pred]
 
     def train(self, X: pd.DataFrame or np.ndarray, y: pd.core.series.Series or np.ndarray, X_val: pd.DataFrame or np.ndarray, y_val: pd.core.series.Series or np.ndarray, generations, learning_rate, w, fi1, fi2, particles_in_swarm, verbose=False):
-        """Train neural network.
+        """
+        Training neural network with pso optimization algorithm.
 
-        keyword arguments:
-            X - predictors
-            y - outcomes
-            learning_rate - after learning_rate * generations without a change in global best cost stop training
-            w - inertia parameter for particle swarm optimization
-            fi1 - cognitive (local) acceleration
-            fi2 - social (global) acceleration
+        Parameters:
+            X - training set with predictiors
+            y - training set with outcome
+            val_X - validation set with predictions
+            val_y - validation set with outcome
+            generations - how many iterations of pso will be executed
+            learning_rate - proportion of how many generations may have difference in cost without 0.001 improvement 
+            w - hyperparameter inertia
+            fi1 - hyperparameter cognitive(local) acceleration
+            fi2 - hyperparameter social(global) acceleration
             particles_in_swarm - number of particles in swarm
             verbose - printing param
         """
@@ -99,6 +103,14 @@ class NeuralNetwork:
         self.history_train, self.history_val = PCO(mse, particles_in_swarm, self).run(X_np, y_np, X_val_np, y_val_np, tanh, generations, learning_rate, w,  fi1, fi2, verbose)
 
     def predict(self, X):
+        """
+        Predicts outcome for given X (basically runs forward propagation)
+        
+        X - np.ndarray or pandas dataframe which contains n observations
+        
+        Returns:
+            y_pred_pd - pandas Dataframe with predictions
+        """
         assert isinstance(X, pd.DataFrame) or isinstance(X, np.ndarray), 'Required input data format: pd.DataFrame'
         
         if not isinstance(X, np.ndarray):
@@ -128,6 +140,13 @@ def mse(y_pred, y):
 
 class Particle:
     def __init__(self, position, activation_func=tanh):
+        """
+        Particle constructor
+        
+        Parameters:
+            position - in other words that is just a vector of weights and biases
+            activation_func - activation function that is used for each layer
+        """
         self.position = position
         self.cost = float('inf')
         self.velocity = np.random.uniform(-1, 1, self.position.shape)
@@ -192,7 +211,7 @@ class Particle:
     def move(self, gbest_pos, w, fi1, fi2):
         """Move particle
 
-        keyword arguments:
+         Parameters:
             gbest_post - global best position so fat
             w - inertia
             fi1 - cognitive (local) acceleration
@@ -217,6 +236,15 @@ class Particle:
 
 class PCO:
     def __init__(self, cost_function, individuals, network):
+        """
+        Particle swarm optimization class
+        
+        Parameters:
+            cost_function - loss function that will be used to compute cost
+            individuals - number of particles in swarm
+            network - neural network object
+        """
+        
         self.cost_function = cost_function
         self.vector_len = [layer.in_size * layer.out_size + layer.bias.shape[1] for layer in network.layers]
         self.network = network
@@ -227,16 +255,24 @@ class PCO:
         self.gbest_cost = [float('inf')]
 
     def init_swarm(self):
+        """
+        Initialization of swarm with random weights
+        """
         return np.array([Particle(position, self.network.activation_func) for position in np.random.uniform(-1, 1, (self.individuals, sum(self.vector_len)))])
 
     def get_cost(self, particle, X, y, network, vector_len):
         """Compute cost for current position of the particle
 
-        keyword arguments:
+        Parameters:
+            particle - single particle (vector of weights and biases of the neural network)
             X - predictors
             y - outcomes
-            network - blueprint of network that is being trained
+            network - architecture of network that is being trained
             vector_len - list of indexes of layers
+            
+        Returns:
+            * cost
+            * accuracy 
         """
         layers_form = particle.fold_vector(network, vector_len)
         cost = 0
@@ -281,7 +317,27 @@ class PCO:
             return True
         return False
 
-    def run(self, X, y, val_X, val_y, activation_func, generations, learning_rate, w, fi1, fi2, verbose):
+    def run(self, X: np.ndarray, y: np.ndarray, val_X: np.ndarray, val_y: np.ndarray, activation_func, generations: int, learning_rate: float, w: float, fi1: float, fi2: float, verbose: float):
+        """
+        Implementation of particle swarm optimization algorithm.
+        
+        Parameters: 
+            X - training set with predictiors
+            y - training set with outcome
+            val_X - validation set with predictions
+            val_y - validation set with outcome
+            activation_func - activation function for every layer in neural network
+            generations - how many iterations of pso will be executed
+            learning_rate - proportion of how many generations may be without 0.001 improvement 
+            w - hyperparameter inertia
+            fi1 - hyperparameter cognitive(local) acceleration
+            fi2 - hyperparameter social(global) acceleration
+            verbose - whether to print metrics for every generation
+        
+        Return:
+            * List of global best costs
+            * History (list) of validation costs
+        """
         val_cost_hist = []
         train_cost_hist = []
         # start timing
@@ -305,7 +361,6 @@ class PCO:
                 # update cost of particle
                 self.update_particle_cost(particle, X, y, self.network, self.vector_len)
 
-#             self.swarm.sort()
 
             # settings global best particle
             if self.set_gbest_particle():
@@ -315,7 +370,6 @@ class PCO:
             train_cost, train_acc = self.get_cost(self.gbest_particle, X, y, self.network, self.vector_len)
             val_cost_hist.append(val_cost)
             train_cost_hist.append(train_cost)
-#             print(train_cost_hist)
 
             if i - stop_cond_index_behind >= 0 and train_cost_hist[i - stop_cond_index_behind] - train_cost_hist[i] <= .001 or self.gbest_cost[-1] < .01:
                 print(f'Generation {i} stop condition satisfied\nFinal cost: {self.gbest_cost[-1]}')
