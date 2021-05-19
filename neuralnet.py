@@ -1,48 +1,65 @@
 import numpy as np
 from time import time
 import pandas as pd
-from numba import jit
+from collections.abc import Callable
+from typing import List, Dict, Tuple
 
-@jit(nopython=True)
-def tanh(x):
-    return np.tanh(x)
 
 class Dense:
-    # input_size = number of input neurons
-    # output_size = number of output neurons
-    def __init__(self, input_size, output_size):
-        self.input = None
-        self.output = None
+    # input_size = number of neurons in previous layer or features in sample
+    # output_size = number of neurons in this layer
+    def __init__(self, input_size: int, output_size: int, activation_func: Callable[np.ndarray, np.ndarray]):
         self.in_size = input_size
         self.out_size = output_size
-        self.weights = np.random.rand(input_size, output_size) - 0.5
-        self.bias = np.random.rand(1, output_size) - 0.5
+        self.weights = None
+        self.bias = None
+        self.activation_func = activation_func
 
     # returns output for a given input
-    def forward_propagation(self, input_data):
-        self.input = input_data
-        self.output = self.input @ self.weights + self.bias
-        return self.output
-
-    def create_another(self):
-        return self.__class__((self.weights.shape), self.activation)
+    def linear_forward(self, A: np.ndarray, w: np.ndarray=None, b: np.ndarray=None) -> np.ndarray:
+        """Implementation of the linear part of a layer's forward propagation."""        
+        
+        if w is None and b is None:
+            w = self.weights
+            b = self.bias
+            
+        return A @ w + b
+    
+    def activation_linear_forward(self, A: np.ndarray, w: np.ndarray=None, b: np.ndarray=None) -> np.ndarray:
+        """Implementation of froward propagation for the Linear->Activation layer"""
+        return self.activation_func(self.linear_forward(A, w, b))
 
     def __str__(self):
         return f'{self.in_size} x {self.out_size}'
-
+    
+    def init_parameters(self, init_how: str) -> np.ndarray:
+        """Initializing weights and bias parameters."""
+        xavier_he = {'xavier': np.sqrt(1/self.in_size), 'he_normal': np.sqrt(2/self.in_size)}
+        
+        w = np.random.randn(self.in_size, self.out_size) * xavier_he[init_how]
+        b = np.random.rand(1, self.in_size) * 0.2
+        
+        flat_w = w.reshape(1, self.in_size * self.out_size)
+        
+        return np.concatenate((flat_w, b), axis=1)
+    
+        
+    
     __repr__ = __str__
 
 
 class NeuralNetwork:
-    def __init__(self, activation_func):
+    def __init__(self, cost_func: Callable[np.ndarray, np.ndarray], how_init_weights: str, caption: str="Neural network"):
         self.layers = []
         self.columns_output = None
-        self.activation_func = activation_func
+        self.cost_func = cost_func
+        self.how_init_weights = how_init_weights
         self.history_val = []
         self.history_train = []
+        self.caption = caption
 
     # add layer to network
-    def add(self, layer):
+    def next_layer(self, layer):
         self.layers.append(layer)
 
     def get_histories_of_costs():
@@ -63,8 +80,49 @@ class NeuralNetwork:
         Converting probabilities to binary
         """
         return [np.max(row) == row for row in y_pred]
+    
+    def init_parameters(self) -> np.ndarray:
+        """
+        Method which initialize parameters w and b for each layer in network.
+        
+        Return
+        ------
+            np.ndarray, shape [1 x n_parameters_in_the_neural_network]
+            Flattened numpy array with parameters for the whole network 
+        """
+        params = self.layers[0].init_parameters(self.how_init_weights)
+        for layer in self.layers[1:]:
+            params = np.concatenate((params, layer.init_parameters(self.how_init_weights)), axis=None)
+        
+        return params
+        
+    def forward_propagation(self, X: np.ndarray, parameters: np.ndarray=None) -> np.ndarray:
+        """
+        Implementation of forward propagation 
+        
+        Arguments
+        ---------
+            X - dataset
+            parameters - flattened numpy array with parameters for the whole network 
+                If the argument was not passed it means forward propagation will be computed with trained parameters.
+        
+        Return
+        ------
+            np.ndarray, shape [n_samples_in_X x last_layer_out_size]
+        """
 
-    def train(self, X: pd.DataFrame or np.ndarray, y: pd.core.series.Series or np.ndarray, X_val: pd.DataFrame or np.ndarray, y_val: pd.core.series.Series or np.ndarray, generations, learning_rate, w, fi1, fi2, particles_in_swarm, verbose=False):
+        result = X
+        if parameters is None:
+            for j, layer in enumerate(self.layers):
+                result = layer.activation_linear_forward(result)
+        else: 
+            for j, layer in enumerate(self.layers):
+                result = layer.activation_linear_forward(result, w=parameters[j]['weights'], b=parameters[j]['bias'])
+            
+        return result
+        
+
+    def train(self, X: pd.DataFrame or np.ndarray, y: pd.core.series.Series or np.ndarray, X_val: pd.DataFrame or np.ndarray, y_val: pd.core.series.Series or np.ndarray, generations, w, fi1, fi2, particles_in_swarm, patience: int=None, min_delta: float=None, verbose=False):
         """
         Training neural network with pso optimization algorithm.
 
@@ -74,7 +132,8 @@ class NeuralNetwork:
             val_X - validation set with predictions
             val_y - validation set with outcome
             generations - how many iterations of pso will be executed
-            learning_rate - proportion of how many generations may have difference in cost without 0.001 improvement 
+            patience - generations without significant improvement, after that learning loop is stopped 
+            min_delta - significant improvement between i-th generation cost and (i - patience)-th generation cost
             w - hyperparameter inertia
             fi1 - hyperparameter cognitive(local) acceleration
             fi2 - hyperparameter social(global) acceleration
@@ -100,9 +159,9 @@ class NeuralNetwork:
         y_val_np, _ = NeuralNetwork.convert_to_ndarray(y_val)
         
         
-        self.history_train, self.history_val = PCO(mse, particles_in_swarm, self).run(X_np, y_np, X_val_np, y_val_np, tanh, generations, learning_rate, w,  fi1, fi2, verbose)
+        self.history_train, self.history_val = PSO(particles_in_swarm, self).run(X_np, y_np, X_val_np, y_val_np, generations, w,  fi1, fi2, patience, min_delta, verbose)
 
-    def predict(self, X):
+    def predict(self, X: np.ndarray) -> pd.DataFrame:
         """
         Predicts outcome for given X (basically runs forward propagation)
         
@@ -118,34 +177,38 @@ class NeuralNetwork:
         else:
             X_np = X
 
-        y_pred = np.zeros((X.shape[0], len(self.columns_output)))
-        for i, sample in enumerate(X_np):
-            result = sample
-            for j, layer in enumerate(self.layers):
-                result = layer.forward_propagation(result)
-                if j != 0:
-                    result = self.activation_func(result)
-
-            y_pred[i] = result
+        y_pred = self.forward_propagation(X_np)
 
         # Decode probabilities to binary, then convert to dataframe
         y_pred_pd = pd.DataFrame(NeuralNetwork.decode(y_pred), columns=self.columns_output)
         return y_pred_pd
 
 
-@jit(nopython=True)
 def mse(y_pred, y):
-    return .5 * np.sum((y_pred - y)**2)
+    return np.sum((y_pred - y)**2) / len(y)
 
+def cross_entropy(y_pred, y):
+    return -np.sum(y * np.log(y_pred))
 
+def tanh(x):
+    return np.tanh(x)
+
+def sigmoid(x):
+    return 1/(1 + np.exp(-x))
+
+def softmax(x):
+    return  np.exp(x) / np.sum(np.exp(x), axis=1, keepdims=True)
+    
+def relu(x):
+    return x * (x > 0)
+    
 class Particle:
-    def __init__(self, position, activation_func=tanh):
+    def __init__(self, position):
         """
         Particle constructor
         
         Parameters:
             position - in other words that is just a vector of weights and biases
-            activation_func - activation function that is used for each layer
         """
         self.position = position
         self.cost = float('inf')
@@ -153,9 +216,6 @@ class Particle:
 
         self.lbest_pos = position
         self.lbest_cost = self.cost
-
-
-        self.activation_func = activation_func
 
 
     # Useful for comparing particle objects
@@ -172,7 +232,7 @@ class Particle:
         return self.cost <= other.cost
 
 
-    def fold_vector(self, network, vector_len):
+    def fold_vector(self, network: NeuralNetwork, vector_len: List[int]) -> List[Dict[str, np.ndarray]]:
         """
         Weights and biases are stored in 1 dimensional vector. This method creates list of vectors of weights and biases for every layer
         """
@@ -198,9 +258,9 @@ class Particle:
 
         return list_of_layers_properties
 
-    def fold_vector_to_layer_final(self, network, vector_len):
+    def fold_vector_to_layer_final(self, network: NeuralNetwork, vector_len: List[int]):
         """
-        copying global best position to the layers of given network
+        Copying global best position to the layers of given network
         """
         list_of_layer_props = self.fold_vector(network, vector_len)
         for i in range(len(network.layers)):
@@ -208,7 +268,7 @@ class Particle:
             network.layers[i].bias = list_of_layer_props[i]['bias']
 
 
-    def move(self, gbest_pos, w, fi1, fi2):
+    def move(self, gbest_pos: np.ndarray, w: float, fi1: float, fi2: float):
         """Move particle
 
          Parameters:
@@ -227,38 +287,36 @@ class Particle:
         self.position = self.position + self.velocity
 
 
-
     def __str__(self):
         return f'{self.cost}'
 
     __repr__ = __str__
 
 
-class PCO:
-    def __init__(self, cost_function, individuals, network):
+class PSO:
+    def __init__(self, individuals: int, network: NeuralNetwork):
         """
         Particle swarm optimization class
         
         Parameters:
-            cost_function - loss function that will be used to compute cost
             individuals - number of particles in swarm
             network - neural network object
         """
         
-        self.cost_function = cost_function
-        self.vector_len = [layer.in_size * layer.out_size + layer.bias.shape[1] for layer in network.layers]
+        self.vector_len = [layer.in_size * layer.out_size + layer.out_size for layer in network.layers]
         self.network = network
         self.individuals = individuals
-        self.swarm = self.init_swarm()
+        self.swarm = self.init_swarm(network)
         self.gbest_pos = None
-        self.gbest_particle = Particle(self.swarm[0].position, self.swarm[0].activation_func)
+        self.gbest_particle = Particle(self.swarm[0].position)
         self.gbest_cost = [float('inf')]
 
-    def init_swarm(self):
+    def init_swarm(self, network: NeuralNetwork):
         """
         Initialization of swarm with random weights
         """
-        return np.array([Particle(position, self.network.activation_func) for position in np.random.uniform(-1, 1, (self.individuals, sum(self.vector_len)))])
+        
+        return np.array([Particle(network.init_parameters()) for _ in range(self.individuals)])
 
     def get_cost(self, particle, X, y, network, vector_len):
         """Compute cost for current position of the particle
@@ -274,27 +332,13 @@ class PCO:
             * cost
             * accuracy 
         """
-        layers_form = particle.fold_vector(network, vector_len)
-        cost = 0
+        parameters = particle.fold_vector(network, vector_len)
+        
+        AL = network.forward_propagation(X, parameters)
 
-        results = np.zeros(y.shape)
-        for i in range(X.shape[0]):
-
-            # forward propagation
-            result = X[i]
-            for j, layer in enumerate(layers_form):
-                if j == 0:
-                    result = result @ layer['weights'] + layer['bias']
-                else:
-                    result = particle.activation_func(result @ layer['weights'] + layer['bias'])
-            max_idx = np.argmax(result)
-            results[i, max_idx] = 1
-
-            # add cost to overall network cost
-            cost += mse(result, y[i]) / y.shape[0]
-
-        acc = sum(np.all(results == y, axis=1)) / len(y)
-        return cost, acc
+        # add loss to overall network cost
+        cost = network.cost_func(AL, y)
+        return cost, AL
 
     def update_particle_cost(self, particle, X, y, network, vector_len):
         cost, _ = self.get_cost(particle, X, y, network, vector_len)
@@ -304,11 +348,10 @@ class PCO:
             particle.lbest_cost = cost
 
         particle.cost = cost
-        return cost
 
     def set_gbest_particle(self):
         """Set best global position if there is a new one"""
-        particle = np.amin(self.swarm)
+        particle = min(self.swarm)
 
         if particle.cost < self.gbest_cost[-1]:
             self.gbest_pos = np.copy(particle.position)
@@ -316,8 +359,18 @@ class PCO:
             self.gbest_cost.append(particle.cost)
             return True
         return False
-
-    def run(self, X: np.ndarray, y: np.ndarray, val_X: np.ndarray, val_y: np.ndarray, activation_func, generations: int, learning_rate: float, w: float, fi1: float, fi2: float, verbose: float):
+    
+    @staticmethod
+    def get_acc(AL, y):
+        n = len(AL)
+        
+        results_binary = np.zeros((n, 1), dtype=np.int32)
+        results_binary = (AL == AL.max(axis=1)[:,None]).astype(int)
+        
+        acc = np.sum(np.all(results_binary == y, axis=1)) / n
+        return acc
+    
+    def run(self, X: np.ndarray, y: np.ndarray, val_X: np.ndarray, val_y: np.ndarray, generations: int, w: float, fi1: float, fi2: float, patience: int, min_delta: float, verbose: float) -> Tuple[List[int], List[int]]:
         """
         Implementation of particle swarm optimization algorithm.
         
@@ -326,24 +379,27 @@ class PCO:
             y - training set with outcome
             val_X - validation set with predictions
             val_y - validation set with outcome
-            activation_func - activation function for every layer in neural network
             generations - how many iterations of pso will be executed
-            learning_rate - proportion of how many generations may be without 0.001 improvement 
+            patience - generations without significant improvement, after that learning loop is stopped 
+            min_delta - significant improvement between i-th generation cost and (i - patience)-th generation cost
             w - hyperparameter inertia
             fi1 - hyperparameter cognitive(local) acceleration
             fi2 - hyperparameter social(global) acceleration
             verbose - whether to print metrics for every generation
         
         Return:
-            * List of global best costs
-            * History (list) of validation costs
+            * History (list) of train loss
+            * History (list) of validation loss 
         """
         val_cost_hist = []
         train_cost_hist = []
+        
+        n_samples_train = X.shape[0]
+        n_samples_val = val_X.shape[0]
+        
         # start timing
         t0 = time()
         print_generations_interval = int(generations * .25)
-        stop_cond_index_behind = int(learning_rate * generations)
 
         # evaluate cost
         list(map(lambda particle: self.update_particle_cost(particle, X, y, self.network, self.vector_len), self.swarm))
@@ -366,20 +422,29 @@ class PCO:
             if self.set_gbest_particle():
                 gbest_particle_generation = i
 
-            val_cost, val_acc = self.get_cost(self.gbest_particle, val_X, val_y, self.network, self.vector_len)
-            train_cost, train_acc = self.get_cost(self.gbest_particle, X, y, self.network, self.vector_len)
-            val_cost_hist.append(val_cost)
-            train_cost_hist.append(train_cost)
+            val_cost, val_AL = self.get_cost(self.gbest_particle, val_X, val_y, self.network, self.vector_len)
+            train_cost, train_AL = self.get_cost(self.gbest_particle, X, y, self.network, self.vector_len)            
+            
+            val_acc = PSO.get_acc(val_AL, val_y)
+            train_acc = PSO.get_acc(train_AL, y)
+            
+            average_loss_train = train_cost / n_samples_train
+            average_loss_val = val_cost / n_samples_val
+            
+            val_cost_hist.append(average_loss_val)
+            train_cost_hist.append(average_loss_train)
 
-            if i - stop_cond_index_behind >= 0 and train_cost_hist[i - stop_cond_index_behind] - train_cost_hist[i] <= .001 or self.gbest_cost[-1] < .01:
-                print(f'Generation {i} stop condition satisfied\nFinal cost: {self.gbest_cost[-1]}')
-                break
+            if patience is not None and min_delta is not None:
+                if i - patience >= 0 and train_cost_hist[i - patience] - train_cost_hist[i] <= min_delta or self.gbest_cost[-1] < .01:
+                    print(f'Generation {i} stop condition satisfied\nFinal cost: {self.gbest_cost[-1]}')
+                    break
+
 
 
             if verbose:
-                print(f'Generation {i+1}/{generations}\tbest cost = {self.gbest_cost[-1]:.5f}\ttrain acc=>{train_acc:.3f}\tval acc=>{val_acc:.3f}')
+                print(f'Generation {i+1}/{generations}\tloss = {average_loss_train:.5f}\ttrain acc=>{train_acc:.3f}\tval_loss=>{average_loss_val:.5f}\tval acc=>{val_acc:.3f}')
             elif (i+1) % print_generations_interval == 0 or i == 0:
-                print(f'Generation {i+1}/{generations}\tbest cost = {self.gbest_cost[-1]:.5f}\ttrain acc=>{train_acc:.3f}\tval acc=>{val_acc:.3f}')
+                print(f'Generation {i+1}/{generations}\tloss = {average_loss_train:.5f}\ttrain acc=>{train_acc:.3f}\t val_loss=>{average_loss_val:.5f}\tval acc=>{val_acc:.3f}')
 
 
         final_particle = Particle(self.gbest_pos)
@@ -390,4 +455,4 @@ class PCO:
         delta = t1 - t0
 
         print(f'\nTraining time: {delta:.2f}s')
-        return self.gbest_cost, val_cost_hist
+        return train_cost_hist, val_cost_hist
