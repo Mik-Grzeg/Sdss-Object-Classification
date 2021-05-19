@@ -1,6 +1,7 @@
 numpy
-numba
 sklearn
 matplotlib
 pandas
 seaborn
+jupyter
+tabulate
